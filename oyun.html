@@ -1,0 +1,882 @@
+<!DOCTYPE html>
+<html lang="tr">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Flappy Karakterler - Gelişmiş Sürüm</title>
+    <style>
+        * {
+            box-sizing: border-box;
+            user-select: none;
+        }
+        body {
+            margin: 0;
+            padding: 0;
+            background: #111;
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            height: 100vh;
+            overflow: hidden;
+        }
+        #game-container {
+            position: relative;
+            width: 400px;
+            height: 600px;
+            box-shadow: 0 10px 30px rgba(0,0,0,0.8);
+            border-radius: 12px;
+            overflow: hidden;
+            background: #70c5ce;
+        }
+        canvas {
+            display: block;
+            background: transparent;
+        }
+        .screen {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+            align-items: center;
+            background: rgba(0, 0, 0, 0.6);
+            color: white;
+            z-index: 10;
+            transition: opacity 0.3s;
+        }
+        .hidden {
+            display: none !important;
+        }
+        h1 {
+            margin: 0 0 10px 0;
+            font-size: 32px;
+            text-shadow: 2px 2px 4px rgba(0,0,0,0.5);
+            color: #ffd700;
+            text-align: center;
+        }
+        p {
+            font-size: 16px;
+            margin-bottom: 20px;
+            color: #ddd;
+        }
+        .btn {
+            background: #ffcc00;
+            color: #222;
+            border: none;
+            padding: 12px 30px;
+            font-size: 18px;
+            font-weight: bold;
+            border-radius: 25px;
+            cursor: pointer;
+            box-shadow: 0 4px 10px rgba(0,0,0,0.3);
+            transition: transform 0.1s, background 0.2s;
+            margin: 8px;
+        }
+        .btn:hover {
+            background: #ffdd33;
+            transform: scale(1.05);
+        }
+        .btn:active {
+            transform: scale(0.95);
+        }
+        .char-grid {
+            display: grid;
+            grid-template-columns: repeat(2, 1fr);
+            gap: 15px;
+            margin-bottom: 20px;
+        }
+        .char-card {
+            background: rgba(255, 255, 255, 0.15);
+            border: 2px solid rgba(255, 255, 255, 0.3);
+            border-radius: 12px;
+            padding: 15px;
+            text-align: center;
+            cursor: pointer;
+            transition: all 0.2s;
+            width: 110px;
+        }
+        .char-card:hover {
+            background: rgba(255, 255, 255, 0.25);
+            border-color: #ffd700;
+            transform: translateY(-3px);
+        }
+        .char-card.selected {
+            background: rgba(255, 215, 0, 0.3);
+            border-color: #ffd700;
+            box-shadow: 0 0 15px rgba(255, 215, 0, 0.5);
+        }
+        .char-card img, .char-icon {
+            font-size: 36px;
+            margin-bottom: 5px;
+            display: block;
+        }
+        .char-name {
+            font-size: 14px;
+            font-weight: bold;
+            color: #fff;
+        }
+    </style>
+</head>
+<body>
+
+<div id="game-container">
+    <canvas id="gameCanvas" width="400" height="600"></canvas>
+
+    <!-- Karakter Seçim Ekranı -->
+    <div id="menu-screen" class="screen">
+        <h1>Karakterini Seç</h1>
+        <p>Macera için bir yoldaş seç ve başla!</p>
+        
+        <div class="char-grid">
+            <div class="char-card selected" onclick="selectChar('panda', this)">
+                <span class="char-icon">🐼</span>
+                <span class="char-name">Panda</span>
+            </div>
+            <div class="char-card" onclick="selectChar('bird', this)">
+                <span class="char-icon">🐤</span>
+                <span class="char-name">Kuş</span>
+            </div>
+            <div class="char-card" onclick="selectChar('pigeon', this)">
+                <span class="char-icon">🐦</span>
+                <span class="char-name">Güvercin</span>
+            </div>
+            <div class="char-card" onclick="selectChar('cat', this)">
+                <span class="char-icon">🐱</span>
+                <span class="char-name">Kedi</span>
+            </div>
+        </div>
+
+        <button class="btn" onclick="startGame()">OYUNA BAŞLA</button>
+    </div>
+
+    <!-- Oyun Bitti Ekranı -->
+    <div id="gameover-screen" class="screen hidden">
+        <h1>OYUN BİTTİ</h1>
+        <p>Skorun: <span id="final-score">0</span></p>
+        <p>En Yüksek: <span id="final-highscore">0</span></p>
+        <button class="btn" onclick="restartGame()">YENİDEN BAŞLA</button>
+        <button class="btn" style="background:#555; color:#fff;" onclick="openMenu()">Karakter Değiştir</button>
+    </div>
+</div>
+
+<script>
+const canvas = document.getElementById('gameCanvas');
+const ctx = canvas.getContext('2d');
+
+// Ses Efektleri (Web Audio API)
+let audioCtx = null;
+function initAudio() {
+    if (!audioCtx) {
+        audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+    }
+}
+
+function playSound(type) {
+    if (!audioCtx) return;
+    try {
+        const osc = audioCtx.createOscillator();
+        const gain = audioCtx.createGain();
+        osc.connect(gain);
+        gain.connect(audioCtx.destination);
+        const now = audioCtx.currentTime;
+
+        if (type === 'jump') {
+            osc.type = 'sine';
+            osc.frequency.setValueAtTime(300, now);
+            osc.frequency.exponentialRampToValueAtTime(600, now + 0.1);
+            gain.gain.setValueAtTime(0.15, now);
+            gain.gain.exponentialRampToValueAtTime(0.01, now + 0.1);
+            osc.start(now);
+            osc.stop(now + 0.1);
+        } else if (type === 'score') {
+            osc.type = 'triangle';
+            osc.frequency.setValueAtTime(500, now);
+            osc.frequency.setValueAtTime(750, now + 0.08);
+            gain.gain.setValueAtTime(0.2, now);
+            gain.gain.exponentialRampToValueAtTime(0.01, now + 0.2);
+            osc.start(now);
+            osc.stop(now + 0.2);
+        } else if (type === 'coin') {
+            osc.type = 'sine';
+            osc.frequency.setValueAtTime(900, now);
+            osc.frequency.setValueAtTime(1200, now + 0.1);
+            gain.gain.setValueAtTime(0.15, now);
+            gain.gain.exponentialRampToValueAtTime(0.01, now + 0.15);
+            osc.start(now);
+            osc.stop(now + 0.15);
+        } else if (type === 'powerup') {
+            osc.type = 'square';
+            osc.frequency.setValueAtTime(400, now);
+            osc.frequency.linearRampToValueAtTime(800, now + 0.2);
+            gain.gain.setValueAtTime(0.15, now);
+            gain.gain.exponentialRampToValueAtTime(0.01, now + 0.2);
+            osc.start(now);
+            osc.stop(now + 0.2);
+        } else if (type === 'cheer') {
+            // Alkış/Kutlama efekti
+            for(let i=0; i<5; i++) {
+                setTimeout(() => {
+                    if(!audioCtx) return;
+                    let nOsc = audioCtx.createOscillator();
+                    let nGain = audioCtx.createGain();
+                    nOsc.type = 'sawtooth';
+                    nOsc.frequency.setValueAtTime(150 + Math.random()*300, audioCtx.currentTime);
+                    nGain.gain.setValueAtTime(0.1, audioCtx.currentTime);
+                    nGain.gain.exponentialRampToValueAtTime(0.01, audioCtx.currentTime + 0.1);
+                    nOsc.connect(nGain);
+                    nGain.connect(audioCtx.destination);
+                    nOsc.start();
+                    nOsc.stop(audioCtx.currentTime + 0.1);
+                }, i * 60);
+            }
+        } else if (type === 'hit') {
+            osc.type = 'sawtooth';
+            osc.frequency.setValueAtTime(180, now);
+            osc.frequency.linearRampToValueAtTime(60, now + 0.2);
+            gain.gain.setValueAtTime(0.3, now);
+            gain.gain.exponentialRampToValueAtTime(0.01, now + 0.2);
+            osc.start(now);
+            osc.stop(now + 0.2);
+        }
+    } catch(e) {}
+}
+
+// Oyun Durumları
+let gameState = 'MENU'; // MENU, PLAYING, GAMEOVER
+let selectedCharacter = 'panda';
+let score = 0;
+let highScore = localStorage.getItem('flappy_highscore') || 0;
+let coins = 0;
+let gameTime = 0;
+
+// Karakter Objesi
+let bird = {
+    x: 80,
+    y: 250,
+    radius: 18,
+    gravity: 0.38,
+    lift: -7.2,
+    velocity: 0,
+    rotation: 0,
+    shield: false,
+    shieldTimer: 0,
+    doubleScore: false,
+    doubleScoreTimer: 0,
+    slowMo: false,
+    slowMoTimer: 0
+};
+
+let pipes = [];
+let particles = [];
+let weatherParticles = [];
+let pipeSpawnTimer = 0;
+let screenShakeTimer = 0;
+let celebrationTimer = 0;
+
+function selectChar(type, element) {
+    selectedCharacter = type;
+    document.querySelectorAll('.char-card').forEach(c => c.classList.remove('selected'));
+    element.classList.add('selected');
+}
+
+function startGame() {
+    initAudio();
+    document.getElementById('menu-screen').classList.add('hidden');
+    resetGameVariables();
+    gameState = 'PLAYING';
+}
+
+function restartGame() {
+    document.getElementById('gameover-screen').classList.add('hidden');
+    resetGameVariables();
+    gameState = 'PLAYING';
+}
+
+function openMenu() {
+    document.getElementById('gameover-screen').classList.add('hidden');
+    document.getElementById('menu-screen').classList.remove('hidden');
+    gameState = 'MENU';
+}
+
+function resetGameVariables() {
+    bird.x = 80;
+    bird.y = 250;
+    bird.velocity = 0;
+    bird.rotation = 0;
+    bird.shield = false;
+    bird.shieldTimer = 0;
+    bird.doubleScore = false;
+    bird.doubleScoreTimer = 0;
+    bird.slowMo = false;
+    bird.slowMoTimer = 0;
+    pipes = [];
+    particles = [];
+    weatherParticles = [];
+    pipeSpawnTimer = 0;
+    score = 0;
+    coins = 0;
+    gameTime = 0;
+    screenShakeTimer = 0;
+    celebrationTimer = 0;
+
+    // Hava durumu tanecikleri oluştur
+    for(let i=0; i<30; i++) {
+        weatherParticles.push({
+            x: Math.random() * canvas.width,
+            y: Math.random() * canvas.height,
+            speed: 1 + Math.random() * 2,
+            size: 1 + Math.random() * 2
+        });
+    }
+}
+
+// Kontroller
+window.addEventListener('keydown', e => {
+    if (e.code === 'Space' || e.code === 'ArrowUp') {
+        e.preventDefault();
+        jump();
+    }
+});
+
+canvas.addEventListener('click', () => {
+    jump();
+});
+
+function jump() {
+    if (gameState === 'PLAYING') {
+        initAudio();
+        bird.velocity = bird.lift;
+        playSound('jump');
+        
+        // Zıplama rüzgar partikülleri
+        for(let i=0; i<4; i++) {
+            particles.push({
+                x: bird.x - 10,
+                y: bird.y + (Math.random()*10 - 5),
+                vx: -2 - Math.random()*2,
+                vy: Math.random()*2 - 1,
+                radius: Math.random()*3 + 1,
+                color: 'rgba(255,255,255,0.7)',
+                life: 20
+            });
+        }
+    }
+}
+
+// Oyun Döngüsü
+function update() {
+    if (gameState !== 'PLAYING') return;
+
+    gameTime++;
+    let currentSpeed = bird.slowMo ? 1.4 : 2.5;
+
+    // Güç süreleri
+    if (bird.shieldTimer > 0) { bird.shieldTimer--; if(bird.shieldTimer === 0) bird.shield = false; }
+    if (bird.doubleScoreTimer > 0) { bird.doubleScoreTimer--; if(bird.doubleScoreTimer === 0) bird.doubleScore = false; }
+    if (bird.slowMoTimer > 0) { bird.slowMoTimer--; if(bird.slowMoTimer === 0) bird.slowMo = false; }
+    if (celebrationTimer > 0) celebrationTimer--;
+
+    // Fizik ve rotasyon
+    bird.velocity += bird.gravity;
+    bird.y += bird.velocity;
+    bird.rotation = Math.min(Math.PI / 4, Math.max(-Math.PI / 4, (bird.velocity / 12) * Math.PI / 2));
+
+    // Yer ve tavan çarpışması
+    if (bird.y + bird.radius >= canvas.height - 80) {
+        bird.y = canvas.height - 80 - bird.radius;
+        gameOver();
+    }
+    if (bird.y - bird.radius <= 0) {
+        bird.y = bird.radius;
+        bird.velocity = 0;
+    }
+
+    // Boru üretimi
+    pipeSpawnTimer++;
+    let spawnInterval = Math.max(90, 140 - Math.floor(score / 5) * 5);
+    if (pipeSpawnTimer >= spawnInterval) {
+        pipeSpawnTimer = 0;
+        let minHeight = 60;
+        let maxHeight = canvas.height - 240;
+        let topHeight = Math.floor(Math.random() * (maxHeight - minHeight + 1)) + minHeight;
+        let gap = Math.max(130, 170 - Math.floor(score/10)*4);
+        
+        // Rastgele güçlendirme veya altın ekleme
+        let pType = 'none';
+        let rand = Math.random();
+        if (rand < 0.15) pType = 'shield';
+        else if (rand < 0.30) pType = 'double';
+        else if (rand < 0.45) pType = 'slow';
+
+        pipes.push({
+            x: canvas.width,
+            topHeight: topHeight,
+            gap: gap,
+            width: 65,
+            passed: false,
+            moving: score >= 15,
+            moveDir: 1,
+            coin: Math.random() < 0.6,
+            coinCollected: false,
+            powerUp: pType,
+            powerUpCollected: false
+        });
+    }
+
+    // Boruları hareket ettir ve kontrol et
+    for (let i = pipes.length - 1; i >= 0; i--) {
+        let p = pipes[i];
+        p.x -= currentSpeed;
+
+        // Hareketli boru mantığı
+        if (p.moving) {
+            p.topHeight += p.moveDir * 0.8;
+            if (p.topHeight < 50 || p.topHeight > canvas.height - 250) {
+                p.moveDir *= -1;
+            }
+        }
+
+        // Puan kontrolü
+        if (!p.passed && p.x + p.width < bird.x) {
+            p.passed = true;
+            let earned = bird.doubleScore ? 2 : 1;
+            score += earned;
+            
+            // 10 ve katlarında alkış kutlaması
+            if (score > 0 && score % 10 === 0) {
+                playSound('cheer');
+                celebrationTimer = 90;
+            } else {
+                playSound('score');
+            }
+
+            if (score > highScore) {
+                highScore = score;
+                localStorage.setItem('flappy_highscore', highScore);
+            }
+        }
+
+        // Altın toplama kontrolü
+        if (p.coin && !p.coinCollected) {
+            let coinX = p.x + p.width / 2;
+            let coinY = p.topHeight + p.gap / 2;
+            let dist = Math.hypot(bird.x - coinX, bird.y - coinY);
+            if (dist < bird.radius + 15) {
+                p.coinCollected = true;
+                coins++;
+                playSound('coin');
+            }
+        }
+
+        // Power-up toplama kontrolü
+        if (p.powerUp !== 'none' && !p.powerUpCollected) {
+            let puX = p.x + p.width / 2;
+            let puY = p.topHeight + p.gap / 2 - 35;
+            let dist = Math.hypot(bird.x - puX, bird.y - puY);
+            if (dist < bird.radius + 15) {
+                p.powerUpCollected = true;
+                playSound('powerup');
+                if (p.powerUp === 'shield') { bird.shield = true; bird.shieldTimer = 350; }
+                if (p.powerUp === 'double') { bird.doubleScore = true; bird.doubleScoreTimer = 350; }
+                if (p.powerUp === 'slow') { bird.slowMo = true; bird.slowMoTimer = 300; }
+            }
+        }
+
+        // Çarpışma kontrolü
+        let bottomY = p.topHeight + p.gap;
+        if (bird.x + bird.radius > p.x && bird.x - bird.radius < p.x + p.width) {
+            if (bird.y - bird.radius < p.topHeight || bird.y + bird.radius > bottomY) {
+                if (bird.shield) {
+                    bird.shield = false;
+                    bird.shieldTimer = 0;
+                    pipes.splice(i, 1);
+                    playSound('hit');
+                } else {
+                    gameOver();
+                }
+            }
+        }
+
+        // Ekran dışı kalan boruları sil
+        if (p.x + p.width < -50) {
+            pipes.splice(i, 1);
+        }
+    }
+
+    // Partikül güncellemeleri
+    for(let i = particles.length - 1; i >= 0; i--) {
+        let pt = particles[i];
+        pt.x += pt.vx;
+        pt.y += pt.vy;
+        pt.life--;
+        if(pt.life <= 0) particles.splice(i, 1);
+    }
+
+    // Hava durumu partikülleri
+    weatherParticles.forEach(wp => {
+        wp.y += wp.speed;
+        if (wp.y > canvas.height - 80) wp.y = 0;
+    });
+
+    if (screenShakeTimer > 0) screenShakeTimer--;
+}
+
+// Oyun Bitti
+function gameOver() {
+    playSound('hit');
+    screenShakeTimer = 20;
+    gameState = 'GAMEOVER';
+    document.getElementById('final-score').innerText = score;
+    document.getElementById('final-highscore').innerText = highScore;
+    document.getElementById('gameover-screen').classList.remove('hidden');
+}
+
+// Çizim Fonksiyonları
+function draw() {
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+    // Ekran sarsıntısı efekti
+    ctx.save();
+    if (screenShakeTimer > 0) {
+        let shakeX = (Math.random() - 0.5) * 8;
+        let shakeY = (Math.random() - 0.5) * 8;
+        ctx.translate(shakeX, shakeY);
+    }
+
+    // 1. Gökyüzü ve Arka Plan (Gece/Gündüz Döngüsü)
+    let skyGrad = ctx.createLinearGradient(0, 0, 0, canvas.height);
+    if (score < 10) {
+        skyGrad.addColorStop(0, '#4fc3f7');
+        skyGrad.addColorStop(1, '#b3e5fc');
+    } else if (score < 25) {
+        skyGrad.addColorStop(0, '#ff7043');
+        skyGrad.addColorStop(1, '#ffccbc');
+    } else {
+        skyGrad.addColorStop(0, '#1a237e');
+        skyGrad.addColorStop(1, '#3f51b5');
+    }
+    ctx.fillStyle = skyGrad;
+    ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+    // Güneş veya Ay & Yıldızlar
+    if (score < 25) {
+        // Güneş
+        ctx.fillStyle = '#ffeb3b';
+        ctx.beginPath();
+        ctx.arc(330, 70, 30, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.fillStyle = 'rgba(255, 235, 59, 0.3)';
+        ctx.beginPath();
+        ctx.arc(330, 70, 45 + Math.sin(gameTime*0.05)*5, 0, Math.PI * 2);
+        ctx.fill();
+    } else {
+        // Ay ve Yıldızlar
+        ctx.fillStyle = '#e8f5e9';
+        ctx.beginPath();
+        ctx.arc(330, 70, 25, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.fillStyle = '#fff';
+        ctx.fillRect(80, 50, 3, 3);
+        ctx.fillRect(160, 90, 4, 4);
+        ctx.fillRect(240, 40, 3, 3);
+    }
+
+    // Bulutlar
+    ctx.fillStyle = 'rgba(255, 255, 255, 0.8)';
+    let cloudOffset = (gameTime * 0.5) % (canvas.width + 100);
+    drawCloud(100 - cloudOffset, 100);
+    drawCloud(300 - cloudOffset, 160);
+    drawCloud(500 - cloudOffset, 80);
+
+    // Arka Plan Ağaçları
+    let treeOffset = (gameTime * 1.2) % canvas.width;
+    for(let i = -1; i <= 1; i++) {
+        drawBgTrees(i * canvas.width - treeOffset);
+    }
+
+    // 2. Borular
+    pipes.forEach(p => {
+        let pipeGrad = ctx.createLinearGradient(p.x, 0, p.x + p.width, 0);
+        pipeGrad.addColorStop(0, '#2e7d32');
+        pipeGrad.addColorStop(0.5, '#66bb6a');
+        pipeGrad.addColorStop(1, '#1b5e20');
+
+        ctx.fillStyle = pipeGrad;
+        // Üst Boru
+        ctx.fillRect(p.x, 0, p.width, p.topHeight);
+        ctx.fillRect(p.x - 4, p.topHeight - 25, p.width + 8, 25);
+
+        // Alt Boru
+        let bottomY = p.topHeight + p.gap;
+        ctx.fillRect(p.x, bottomY, p.width, canvas.height - bottomY);
+        ctx.fillRect(p.x - 4, bottomY, p.width + 8, 25);
+
+        // Altın Para
+        if (p.coin && !p.coinCollected) {
+            let cx = p.x + p.width / 2;
+            let cy = p.topHeight + p.gap / 2;
+            ctx.fillStyle = '#ffd700';
+            ctx.beginPath();
+            ctx.arc(cx, cy, 12, 0, Math.PI * 2);
+            ctx.fill();
+            ctx.strokeStyle = '#ffa000';
+            ctx.lineWidth = 3;
+            ctx.stroke();
+            ctx.fillStyle = '#fff';
+            ctx.font = 'bold 12px sans-serif';
+            ctx.fillText('₺', cx - 4, cy + 4);
+        }
+
+        // Power-Up Simgesi
+        if (p.powerUp !== 'none' && !p.powerUpCollected) {
+            let pux = p.x + p.width / 2;
+            let puy = p.topHeight + p.gap / 2 - 35;
+            ctx.fillStyle = p.powerUp === 'shield' ? '#ab47bc' : (p.powerUp === 'double' ? '#29b6f6' : '#ffa726');
+            ctx.beginPath();
+            ctx.arc(pux, puy, 14, 0, Math.PI * 2);
+            ctx.fill();
+            ctx.strokeStyle = '#fff';
+            ctx.lineWidth = 2;
+            ctx.stroke();
+            ctx.fillStyle = '#fff';
+            ctx.font = '10px sans-serif';
+            ctx.fillText(p.powerUp === 'shield' ? '🛡️' : (p.powerUp === 'double' ? '2X' : '⏳'), pux - 7, puy + 4);
+        }
+    });
+
+    // 3. Zemin (Çim ve Toprak)
+    ctx.fillStyle = '#8d6e63';
+    ctx.fillRect(0, canvas.height - 80, canvas.width, 80);
+    ctx.fillStyle = '#4caf50';
+    ctx.fillRect(0, canvas.height - 80, canvas.width, 20);
+
+    // Zemin Ağaçları / Detayları
+    ctx.fillStyle = '#388e3c';
+    let groundTreeOffset = (gameTime * 2.5) % canvas.width;
+    for(let i = -1; i <= 2; i++) {
+        let tx = i * 150 - (groundTreeOffset % 150);
+        ctx.beginPath();
+        ctx.moveTo(tx, canvas.height - 60);
+        ctx.lineTo(tx + 20, canvas.height - 95);
+        ctx.lineTo(tx + 40, canvas.height - 60);
+        ctx.fill();
+    }
+
+    // 4. Karakter Çizimi
+    ctx.save();
+    ctx.translate(bird.x, bird.y);
+    ctx.rotate(bird.rotation);
+
+    if (selectedCharacter === 'panda') drawPanda();
+    else if (selectedCharacter === 'bird') drawBird();
+    else if (selectedCharacter === 'pigeon') drawPigeon();
+    else if (selectedCharacter === 'cat') drawCat();
+
+    ctx.restore();
+
+    // Kalkan Efekti
+    if (bird.shield) {
+        ctx.strokeStyle = '#00e5ff';
+        ctx.lineWidth = 4;
+        ctx.beginPath();
+        ctx.arc(bird.x, bird.y, bird.radius + 8, 0, Math.PI * 2);
+        ctx.stroke();
+    }
+
+    // Partiküller
+    particles.forEach(pt => {
+        ctx.fillStyle = pt.color;
+        ctx.beginPath();
+        ctx.arc(pt.x, pt.y, pt.radius, 0, Math.PI * 2);
+        ctx.fill();
+    });
+
+    // Hava Durumu (Hafif Yağmur/Kar)
+    ctx.fillStyle = 'rgba(255,255,255,0.6)';
+    weatherParticles.forEach(wp => {
+        ctx.fillRect(wp.x, wp.y, wp.size, wp.size * 3);
+    });
+
+    // Arayüz (Skorlar & İkonlar)
+    if (gameState === 'PLAYING') {
+        ctx.fillStyle = 'white';
+        ctx.font = 'bold 36px sans-serif';
+        ctx.textAlign = 'center';
+        ctx.shadowColor = 'rgba(0,0,0,0.5)';
+        ctx.shadowBlur = 6;
+        ctx.fillText(score, canvas.width / 2, 60);
+        ctx.shadowBlur = 0;
+
+        // Üst Bilgi (Altın ve Güçler)
+        ctx.font = '14px sans-serif';
+        ctx.textAlign = 'left';
+        ctx.fillText(`💰 ${coins}`, 20, 35);
+
+        let activeEffects = [];
+        if (bird.shield) activeEffects.push('🛡️ Kalkan');
+        if (bird.doubleScore) activeEffects.push('2X Puan');
+        if (bird.slowMo) activeEffects.push('⏳ Yavaş');
+        
+        if (activeEffects.length > 0) {
+            ctx.fillStyle = '#ffeb3b';
+            ctx.fillText(activeEffects.join(' | '), 20, 58);
+        }
+
+        // 10'un Katlarında Kutlama Mesajı
+        if (celebrationTimer > 0) {
+            ctx.fillStyle = '#ffeb3b';
+            ctx.font = 'bold 28px sans-serif';
+            ctx.textAlign = 'center';
+            ctx.fillText('HARİKA GİDİYORSUN! 👏', canvas.width / 2, 120);
+        }
+    }
+
+    ctx.restore(); // Ekran sarsıntısı sonu
+}
+
+function drawCloud(x, y) {
+    ctx.beginPath();
+    ctx.arc(x, y, 20, 0, Math.PI * 2);
+    ctx.arc(x + 15, y - 10, 25, 0, Math.PI * 2);
+    ctx.arc(x + 35, y, 20, 0, Math.PI * 2);
+    ctx.closePath();
+    ctx.fill();
+}
+
+function drawBgTrees(x) {
+    ctx.fillStyle = 'rgba(0, 0, 0, 0.15)';
+    ctx.beginPath();
+    ctx.moveTo(x, canvas.height - 80);
+    ctx.lineTo(x + 25, canvas.height - 140);
+    ctx.lineTo(x + 50, canvas.height - 80);
+    ctx.fill();
+}
+
+// Karakter Çizim Detayları (Gövde ve Bacaklı)
+function drawPanda() {
+    // Bacaklar
+    ctx.fillStyle = '#333';
+    let legAnim = Math.sin(gameTime * 0.3) * 4;
+    ctx.fillRect(-8, 12 + legAnim, 5, 8);
+    ctx.fillRect(4, 12 - legAnim, 5, 8);
+    // Gövde
+    ctx.fillStyle = '#fff';
+    ctx.beginPath();
+    ctx.arc(0, 0, 18, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.strokeStyle = '#333';
+    ctx.lineWidth = 2;
+    ctx.stroke();
+    // Kulaklar & Göz Lekeleri
+    ctx.fillStyle = '#333';
+    ctx.beginPath();
+    ctx.arc(-12, -12, 6, 0, Math.PI * 2);
+    ctx.arc(12, -12, 6, 0, Math.PI * 2);
+    ctx.arc(-7, -2, 5, 0, Math.PI * 2);
+    ctx.arc(7, -2, 5, 0, Math.PI * 2);
+    ctx.fill();
+}
+
+function drawBird() {
+    // Bacaklar
+    ctx.strokeStyle = '#ff9800';
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+    ctx.moveTo(-4, 14); ctx.lineTo(-4, 20);
+    ctx.moveTo(4, 14); ctx.lineTo(4, 20);
+    ctx.stroke();
+    // Gövde
+    ctx.fillStyle = '#ffeb3b';
+    ctx.beginPath();
+    ctx.arc(0, 0, 16, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.strokeStyle = '#fbc02d';
+    ctx.lineWidth = 2;
+    ctx.stroke();
+    // Kanat & Gaga
+    ctx.fillStyle = '#ffa726';
+    ctx.beginPath();
+    ctx.ellipse(-6, 2, 8, 5, Math.PI / 6, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.fillStyle = '#ff5722';
+    ctx.beginPath();
+    ctx.moveTo(12, -3);
+    ctx.lineTo(20, 1);
+    ctx.lineTo(12, 5);
+    ctx.closePath();
+    ctx.fill();
+}
+
+function drawPigeon() {
+    // Bacaklar
+    ctx.strokeStyle = '#e91e63';
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+    ctx.moveTo(-4, 14); ctx.lineTo(-4, 21);
+    ctx.moveTo(4, 14); ctx.lineTo(4, 21);
+    ctx.stroke();
+    // Gövde
+    ctx.fillStyle = '#90a4ae';
+    ctx.beginPath();
+    ctx.arc(0, 0, 17, 0, Math.PI * 2);
+    ctx.fill();
+    // Boyun Parlaması
+    ctx.fillStyle = '#4db6ac';
+    ctx.beginPath();
+    ctx.arc(6, -4, 7, 0, Math.PI * 2);
+    ctx.fill();
+    // Gaga
+    ctx.fillStyle = '#37474f';
+    ctx.beginPath();
+    ctx.moveTo(13, -2);
+    ctx.lineTo(19, 1);
+    ctx.lineTo(13, 4);
+    ctx.closePath();
+    ctx.fill();
+}
+
+function drawCat() {
+    // Bacaklar ve Kuyruk
+    ctx.fillStyle = '#ff7043';
+    ctx.fillRect(-8, 12, 4, 8);
+    ctx.fillRect(4, 12, 4, 8);
+    ctx.strokeStyle = '#ff7043';
+    ctx.lineWidth = 3;
+    ctx.beginPath();
+    ctx.moveTo(-15, 5);
+    ctx.quadraticCurveTo(-22, -5, -18, -12);
+    ctx.stroke();
+    // Gövde
+    ctx.beginPath();
+    ctx.arc(0, 0, 17, 0, Math.PI * 2);
+    ctx.fill();
+    // Kulaklar
+    ctx.beginPath();
+    ctx.moveTo(-14, -8); ctx.lineTo(-20, -20); ctx.lineTo(-6, -14);
+    ctx.moveTo(14, -8); ctx.lineTo(20, -20); ctx.lineTo(6, -14);
+    ctx.fill();
+    // Gözler
+    ctx.fillStyle = '#76ff03';
+    ctx.beginPath();
+    ctx.arc(-5, -3, 3, 0, Math.PI * 2);
+    ctx.arc(5, -3, 3, 0, Math.PI * 2);
+    ctx.fill();
+}
+
+// Ana Oyun Döngüsü
+function mainLoop() {
+    update();
+    draw();
+    requestAnimationFrame(mainLoop);
+}
+
+// Başlat
+requestAnimationFrame(mainLoop);
+</script>
+
+</body>
+</html>
